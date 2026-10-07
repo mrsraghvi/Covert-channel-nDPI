@@ -2,3 +2,4 @@
 .env.example
 /docker-compose.yml
 /covertscope-sample.pcap
+/frontend/node_modules/
