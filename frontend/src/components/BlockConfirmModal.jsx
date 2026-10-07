@@ -33,10 +33,11 @@ export default function BlockConfirmModal({ ip, defaultReason = "", onConfirm, o
           <code>GET /api/blocklist</code> that a real firewall/edge device can
           poll and enforce.
         </p>
-        <label style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+        <label htmlFor="block-reason" style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
           Reason (recorded with the block)
         </label>
         <input
+          id="block-reason"
           autoFocus
           value={reason}
           onChange={(e) => setReason(e.target.value)}
