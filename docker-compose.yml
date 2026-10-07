@@ -48,6 +48,16 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   frontend:
     # Deliberately does NOT receive COVERTSCOPE_API_KEY: baking a secret into
@@ -59,7 +69,8 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "3000:3000"
     restart: unless-stopped

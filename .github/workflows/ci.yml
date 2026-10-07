@@ -53,12 +53,12 @@ jobs:
         run: docker compose config --quiet
 
       - name: Build and start Docker services
-        run: docker compose up --build -d
+        run: docker compose up --build -d --wait --wait-timeout 90
 
       - name: Smoke-test backend API and frontend
         run: |
           curl --fail --silent --show-error \
-            --retry 15 --retry-connrefused --retry-delay 2 --retry-max-time 45 \
+            --retry 15 --retry-connrefused --retry-all-errors --retry-delay 2 --retry-max-time 45 \
             http://localhost:8000/api/health \
             | python -c 'import json, sys; health = json.load(sys.stdin); assert health["status"] == "ok", health'
           curl --fail --silent --show-error \
