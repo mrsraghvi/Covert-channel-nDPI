@@ -90,17 +90,6 @@ CREATE TABLE IF NOT EXISTS blocked_ips (
 
 CREATE INDEX IF NOT EXISTS idx_blocked_ips_active ON blocked_ips (active);
 
-CREATE TABLE IF NOT EXISTS capture_sessions (
-    id              BIGSERIAL PRIMARY KEY,
-    interface        VARCHAR(64),
-    bpf_filter       VARCHAR(255),
-    mode             VARCHAR(16) DEFAULT 'live',  -- live / simulated
-    started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    stopped_at       TIMESTAMPTZ,
-    flows_captured   INTEGER DEFAULT 0,
-    alerts_raised    INTEGER DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS thresholds (
     key             VARCHAR(64) PRIMARY KEY,
     value           DOUBLE PRECISION NOT NULL,
@@ -122,28 +111,3 @@ INSERT INTO thresholds (key, value, description) VALUES
     ('alert_score',         0.40, 'Minimum final_score to raise an alert'),
     ('ml_contamination',    0.05, 'Isolation Forest assumed contamination rate')
 ON CONFLICT (key) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS transmissions_log (
-    id              BIGSERIAL PRIMARY KEY,
-    technique       VARCHAR(32),
-    target          VARCHAR(64),
-    message_len     INTEGER,
-    chunks          INTEGER,
-    started_at      TIMESTAMPTZ DEFAULT now(),
-    completed_at    TIMESTAMPTZ,
-    success         BOOLEAN
-);
-
--- Convenience view: rolling protocol distribution (last 15 minutes)
-CREATE OR REPLACE VIEW v_protocol_distribution AS
-SELECT ndpi_protocol, COUNT(*) AS flow_count, SUM(bytes) AS total_bytes
-FROM flows
-WHERE created_at > now() - INTERVAL '15 minutes'
-GROUP BY ndpi_protocol
-ORDER BY flow_count DESC;
-
-CREATE OR REPLACE VIEW v_alert_summary AS
-SELECT confidence, COUNT(*) AS count
-FROM alerts
-WHERE created_at > now() - INTERVAL '24 hours'
-GROUP BY confidence;

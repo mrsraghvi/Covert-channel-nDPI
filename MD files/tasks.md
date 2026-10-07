@@ -85,32 +85,47 @@ Roughly ordered by "would catch a real problem" first.
       dedicated `covertscope_test` database. It is opt-in for local runs
       through `COVERTSCOPE_TEST_DATABASE_URL` and runs in CI against the
       Compose Postgres service.
-- [ ] **Alembic migrations.** Schema changes currently mean editing both
-      `database.py` (SQLAlchemy models, used by `create_all` at startup)
-      and `database/schema.sql` (the Docker Postgres bootstrap) by hand
-      and keeping them in sync. This already drifted once (see "unused
-      tables" below) — a migration tool would catch drift and support
-      upgrading an existing DB volume instead of requiring a fresh one.
-- [ ] **Decide what to do with `capture_sessions`/`transmissions_log` and
-      the two unused views.** Either wire them up (session-level capture
-      stats, a real generator audit trail, swap `get_stats()`'s ad-hoc
-      queries for the views) or remove them from `schema.sql` so the
-      schema doesn't claim functionality that doesn't exist.
-- [ ] Re-run `pip-audit`/`npm audit` — they were clean as of the last
-      pass, but that's a point-in-time fact, not a standing guarantee.
-      CI running these on a schedule (see below) would make this
-      automatic instead of relying on remembering.
+- [x] **Alembic migrations.** Added an immutable bootstrap revision and a
+      blocklist/threshold revision. Backend startup upgrades the database
+      automatically; existing tables and rows are adopted without dropping
+      data. Compose no longer relies on Postgres's first-volume-only
+      `schema.sql` bootstrap. The real-Postgres integration test reruns
+      migrations and verifies an existing blocklist row survives.
+- [x] **Resolve the unused capture/generator tables and views.** They had
+      no readers or writers, so they were removed from the fresh-schema
+      bootstrap and migration. Existing database volumes are not dropped or
+      rewritten; any legacy objects and their data remain untouched.
+- [x] Re-run dependency vulnerability audits and automate them. `npm audit`
+      reports zero advisories across the frontend lockfile; `pip-audit`
+      reports no known vulnerabilities in the pinned backend requirements.
+      Both audits now run on pushes, pull requests, manual dispatch, and a
+      weekly schedule in GitHub Actions.
+- [x] Add detector-coverage regression tests for the loopback generator's
+      timing, DNS, HTTP, and ICMP signatures. The tests verify each default
+      signature raises the matching rule alert and include a low-signal
+      control case. The C engine now exports IAT bimodality, and the
+      generator's default payload is long enough to exercise the HTTP rule.
+      The API and frontend now use that same payload default rather than
+      overriding it with shorter messages that miss the HTTP signature.
+- [x] **IPv6 support through capture and display.** The live C parser tracks
+      IPv4 and IPv6 flow keys, parses bounded IPv6 extension-header chains,
+      and exports bracketed IPv6 endpoints. The backend endpoint parser and
+      dashboard preserve the address correctly. Fragmented IPv6 packets
+      requiring reassembly are skipped. A dual-stack offline PCAP verified
+      the C engine export.
 
 ### Worth doing
-- [ ] CI pipeline: `pip-audit` + `npm audit` on a schedule, backend
-      `py_compile` + test suite, frontend `npm run build`, on every PR at
-      minimum. None of this currently runs automatically — every check in
-      this project so far has been manual, one-off verification.
-- [ ] Persist the ML model (`MLDetector`) instead of refitting in-memory
-      each process start, if stable scoring across restarts matters for
-      your use case.
-- [ ] IPv6 support in the C packet parser (currently IPv4-only end to
-      end — parser, schema, frontend IP splitting all assume dotted-quad).
+- [x] CI pipeline runs dependency audits, backend tests, frontend tests
+      and build, Docker Compose validation, container smoke tests, and the
+      PostgreSQL integration test on pushes and pull requests. Dependency
+      audits also run weekly.
+- [x] Persist the Isolation Forest model, scaler, and training window
+      across backend restarts. Compose stores the state in a dedicated
+      named volume; unit tests cover round-trip restoration and safe startup
+      when the model file is missing or corrupt.
+- [ ] Validate all four generator signatures through live capture on the
+      isolated Linux lab VM before deployment; unit tests and offline PCAP
+      checks do not replace this privileged runtime check.
 - [ ] If this is ever deployed beyond a single operator: real per-user
       auth (not the shared API key), and a shared rate-limiter/WS-ticket
       store (Redis or similar) instead of the current in-memory ones,

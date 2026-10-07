@@ -44,6 +44,10 @@ Four independently-runnable pieces:
 4. **`frontend/`** — React 18 + Vite + react-router v7 + recharts. Static
    build served by nginx in production; `npm run dev` for local work.
 
+The live nDPI engine and offline PCAP replay accept IPv4 and IPv6 packets.
+Flow endpoint strings use `ip:port` for IPv4 and `[ip]:port` for IPv6 so
+address parsing remains unambiguous across the API and dashboard.
+
 ## 2. Backend internals
 
 ### Request flow for a live-captured flow
@@ -57,8 +61,8 @@ Four independently-runnable pieces:
    - `StatisticalDetector.evaluate(features)` → rule-based score + specific
      `reasons` list, checked against the live-tunable `thresholds` table.
    - `MLDetector.score(features)` → an Isolation Forest anomaly score
-     (`n_estimators=200`, `contamination` tunable, retrained in-memory —
-     see §Known limitations).
+     (`n_estimators=200`, `contamination` tunable, periodically refit and
+     persisted with its scaler and training window — see §Known limitations).
    - `AlertManager.combine(stat_score, ml_score)` →
      `final_score = 0.6*stat + 0.4*ml` (`STAT_WEIGHT`/`ML_WEIGHT` in
      `alert_manager.py`), compared against `alert_threshold` (default 0.40,
@@ -72,12 +76,19 @@ Four independently-runnable pieces:
    flow is marked `blocked=True` so a re-offending source is visible
    immediately.
 
+The C engine exports the bounded-sample IAT bimodality ratio with each
+flow; the Python feature extractor consumes it directly because raw IAT
+samples are not sent over the ingest socket. Regression tests construct
+feature records matching the loopback generator's default timing, DNS,
+HTTP, and ICMP signatures and verify that each produces its corresponding
+rule alert.
+
 ### Simulated mode
 `simulator.py` generates synthetic flows directly (no C engine needed) for
 demoing/dev without root or a real interface — same `IngestEngine.ingest()`
 path, so it's not a separate code path from real capture.
 
-### Data model (`database.py` / `database/schema.sql`)
+### Data model (`backend/app/database.py` / `database/schema.sql`)
 - `flows` — one row per classified flow, all `FlowFeatures` fields plus
   `is_covert`, `anomaly_score`, `blocked`.
 - `alerts` — one row per raised alert, FK to `flows`, confidence tier,
@@ -86,11 +97,10 @@ path, so it's not a separate code path from real capture.
   keys — see `schemas.py::KNOWN_THRESHOLD_KEYS`, kept in sync with the
   seed rows here).
 - `blocked_ips` — the soft/advisory blocklist (see §Blocklist below).
-- **Defined but unused**: `capture_sessions`, `transmissions_log`,
-  `v_protocol_distribution`, `v_alert_summary` — pre-existing schema, no
-  current code path reads/writes them. See `tasks.md` if you want to wire
-  these up (session-level capture stats, generator audit trail, or swap
-  `get_stats()`'s ad-hoc queries for the views).
+- Older database volumes may retain unused legacy objects
+  (`capture_sessions`, `transmissions_log`, `v_protocol_distribution`,
+  `v_alert_summary`). New schemas do not create them, and migrations leave
+  existing objects untouched to avoid data loss.
 
 ### API surface
 All REST/WS routes require `X-API-Key` except `GET /api/health`. Full list
@@ -148,12 +158,16 @@ expand the main backend's privileges to do it.
 
 ## 5. Known limitations (be honest about these, don't paper over them)
 
-- **No persisted ML model.** `MLDetector`'s Isolation Forest is refit
-  in-memory on whatever flows have been seen this process lifetime —
-  restarting the backend resets it. Fine for a lab session, not fine if
-  you want stable scoring across restarts.
-- **IPv4 only**, end to end (C parser, DB schema, frontend IP parsing all
-  assume dotted-quad).
+- **Persisted ML model.** `MLDetector` atomically saves the Isolation
+  Forest, scaler, and rolling training window after each refit. Compose
+  keeps them in the `mlmodel` named volume, so backend restarts retain the
+  learned baseline. Set `COVERTSCOPE_ML_MODEL_PATH` to choose another path.
+  The state is a trusted local joblib/pickle artifact: protect its storage
+  from untrusted writers, and delete it only when intentionally resetting
+  the learned baseline.
+- **IPv6 fragment limitation.** The C parser handles IPv6 TCP, UDP, and
+  ICMPv6, including up to eight common extension headers, but skips IPv6
+  fragments that require reassembly.
 - **In-memory rate limiter and WS-ticket store** — correct for one backend
   process, won't coordinate across replicas if you ever scale horizontally.
 - **Flow table in the C engine is a fixed 65536-entry hash table** with no
@@ -162,7 +176,9 @@ expand the main backend's privileges to do it.
   bug) — but a very high number of concurrent 5-tuples could make new
   flows silently untracked until others export. Noted, not fixed — see
   `CODE_REVIEW.md` for why.
-- `capture_sessions`/`transmissions_log` tables unused — see §2 above.
+- Legacy capture/generator tables and summary views may remain in older
+  databases; they are not used by the application and are not created in
+  fresh schemas.
 
 ## 6. Where things live (quick reference)
 

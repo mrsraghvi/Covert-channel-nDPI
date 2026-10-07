@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.requests import Request
 
 from app import main
-from app.database import Base, BlockedIP
+from app.database import BlockedIP
+from app.migrations import upgrade_database
 from app.schemas import BlockCreate
 
 
@@ -27,8 +28,7 @@ class BlocklistPostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.original_session_factory = main.AsyncSessionLocal
         main.AsyncSessionLocal = self.session_factory
 
-        async with self.engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await upgrade_database(self.engine)
 
         octets = secrets.token_bytes(2)
         self.ip = str(ipaddress.IPv4Address(bytes([198, 18, *octets])))
@@ -76,6 +76,14 @@ class BlocklistPostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(persisted.id, first_id)
             self.assertEqual(persisted.reason, "initial integration block")
             self.assertTrue(persisted.active)
+
+        await upgrade_database(self.engine)
+        async with self.session_factory() as session:
+            persisted = await session.scalar(
+                select(BlockedIP).where(BlockedIP.ip == self.ip)
+            )
+            self.assertIsNotNone(persisted)
+            self.assertEqual(persisted.id, first_id)
 
         await main.unblock_ip(self.ip, self.request)
 

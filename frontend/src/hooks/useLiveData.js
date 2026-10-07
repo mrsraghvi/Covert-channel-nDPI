@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { api, connectSocket, ApiAuthError, getApiKey, ipFromHostPort } from "../lib/api";
+import { api, connectSocket, ApiAuthError, getApiKey, ipFromHostPort, normalizeFlow } from "../lib/api";
 import { genBenignFlow, genCovertFlow, genAlert, makeInitialHistory } from "../lib/demoData";
 
 const MAX_FLOWS = 300;
@@ -88,7 +88,7 @@ export function useLiveData() {
         setNeedsApiKey(false);
         setConnected(true);
         setDemoMode(false);
-        setFlows(initFlows.reverse());
+        setFlows(initFlows.map(normalizeFlow).reverse());
         setAlerts(initAlerts.reverse());
         setStats(initStats);
         setBlockedIps(new Map(

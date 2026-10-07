@@ -13,7 +13,7 @@ been built/tested in this environment:
 | nDPI C engine (`ndpi-engine/`) | ✅ built & smoke-tested | Compiles against a real nDPI checkout; verified against a synthetic pcap — correctly classified a DNS flow and computed IAT/entropy stats, streamed as JSON over TCP :9999 |
 | Detection engine (`detection/`) | ✅ built & tested | Statistical rules + Isolation Forest; verified against 200 synthetic flows (40 alerts raised, correct reasoning) |
 | Backend (`backend/`) | ✅ built | FastAPI, Postgres via SQLAlchemy async, WebSocket broadcast, TCP ingest listener |
-| Database (`database/schema.sql`) | ✅ built | Flows, alerts, thresholds, capture sessions, views |
+| Database (`database/schema.sql`) | ✅ built | Flows, alerts, thresholds, blocklist |
 | Dashboard (`frontend/`) | ✅ built & compiled | React + Recharts, 5 pages, production build passes |
 | Test-traffic generator (`generator/`) | ✅ built & tested | **Hard-restricted to loopback** — see Security notes below |
 
@@ -83,6 +83,22 @@ npm run dev      # http://localhost:3000, proxies /api and /ws to :8000
 
 ---
 
+## Continuous integration
+
+GitHub Actions runs on pushes, pull requests, and manual dispatch. It builds
+the dashboard with Node.js 22, installs the backend dependencies on Python
+3.12, audits npm and Python dependencies, and runs the frontend and backend
+tests. It validates the Compose configuration, then builds and smoke-tests
+the Dockerized API and dashboard. Dependency audits also run weekly. The Compose
+smoke test uses disposable CI-only credentials and removes its containers and
+database volume afterward.
+
+The nDPI packet-capture engine is built and run separately on the host rather
+than as a Compose service, so this workflow does not attempt privileged live
+packet capture.
+
+---
+
 ## Dashboard pages
 
 - **Dashboard** — live stat cards, packet/anomaly timeline, covert-ratio & entropy gauges, protocol pie chart, recent alerts feed.
@@ -143,8 +159,11 @@ change to the backend container.
 
 ## What to extend next
 
-- IPv6 support in the C engine (currently IPv4-only for the packet parser).
-- Model persistence for the Isolation Forest (currently retrains in-memory each run).
-- Alembic migrations instead of the raw `schema.sql` bootstrap.
-- Per-user accounts / RBAC if you need more than one shared API key (see SECURITY.md).
-- TLS termination via a reverse proxy for anything beyond localhost — see `docs/enforce-https.md` for ready-to-use Caddy/nginx configs.
+- Validate all four generator signatures through live capture on the
+  isolated Linux lab VM before deployment.
+- Add idle-flow eviction to the C engine if very high concurrent flow
+  counts become a practical visibility issue.
+- Add per-user accounts / RBAC and shared rate-limiting only if the tool
+  expands beyond its current single-operator deployment model.
+- Configure TLS termination via a reverse proxy for anything beyond
+  localhost — see `docs/enforce-https.md` for ready-to-use Caddy/nginx configs.

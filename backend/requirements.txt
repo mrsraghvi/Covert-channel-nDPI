@@ -3,6 +3,7 @@ uvicorn[standard]==0.52.4
 websockets==17.1
 pydantic==2.13.5
 sqlalchemy[asyncio]==2.0.52
+alembic==1.17.1
 asyncpg==0.31.0
 scikit-learn==1.9.0
 numpy==2.5.3

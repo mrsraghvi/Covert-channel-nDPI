@@ -34,6 +34,9 @@ from pathlib import Path
 
 LOOPBACK_ONLY = {ipaddress.ip_address("127.0.0.1"), ipaddress.ip_address("::1")}
 LOG_PATH = Path(__file__).with_name("transmissions.jsonl")
+# The default sample is long enough to cross the HTTP detector's default
+# User-Agent length threshold while keeping the generator useful as a smoke test.
+DEFAULT_MESSAGE = "covertscope-lab-test-payload-12345"
 
 
 def assert_loopback(target: str) -> str:
@@ -197,7 +200,7 @@ def main():
     parser = argparse.ArgumentParser(description="CovertScope lab-only covert channel test generator (loopback only).")
     parser.add_argument("--target", default="127.0.0.1", help="Must resolve to loopback (127.0.0.1 / ::1).")
     parser.add_argument("--technique", choices=["timing", "dns", "http", "icmp", "all"], default="all")
-    parser.add_argument("--message", default="covertscope-lab-test-payload")
+    parser.add_argument("--message", default=DEFAULT_MESSAGE)
     parser.add_argument("--dns-domain", default="tunnel.test.local")
     parser.add_argument("--icmp-chunk", type=int, default=300)
     parser.add_argument("--duration", type=int, default=0, help="Unused hook for the API wrapper; techniques run once.")

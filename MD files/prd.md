@@ -88,22 +88,25 @@ capture.
   on each skipped item.
 
 ### Known gaps / not yet wired up
-- `database/schema.sql` defines `capture_sessions` and `transmissions_log`
-  tables and two convenience views (`v_protocol_distribution`,
-  `v_alert_summary`) that **no Python code currently reads or writes** —
-  pre-existing schema from before this tool was hardened, never connected.
-  See `tasks.md`.
-- IPv6 is not supported end-to-end (the C engine's packet parser is
-  IPv4-only).
-- No persisted ML model — `MLDetector` retrains in-memory each process
-  start (see `architecture.md` §Detection pipeline).
+- Older database volumes may still contain unused legacy objects
+  (`capture_sessions`, `transmissions_log`, `v_protocol_distribution`, and
+  `v_alert_summary`). No application code reads or writes them; fresh
+  schemas no longer create them. Existing objects are retained to avoid
+  dropping any user data.
+- The live C engine and offline replay support IPv4 and IPv6. IPv6 fragments
+  requiring reassembly are skipped by live parsing.
+- The ML detector persists its learned Isolation Forest baseline in a local
+  joblib file; protect that file or Docker volume from untrusted writers
+  because loading a modified joblib file can execute code.
 
 ## 6. Success criteria
 
 There's no external customer metric here — success is measured against
 the tool's own purpose:
 - All four covert techniques (timing, DNS, HTTP, ICMP) the generator can
-  produce are reliably flagged by the detector at default thresholds.
+  produce are covered by default-threshold regression tests using the
+  generated feature signatures; a full live-capture validation remains a
+  lab deployment check.
 - An operator can tell *why* something was flagged (the `reason` field
   on an alert is specific, not "anomaly detected").
 - The dashboard stays usable and honest when the backend is unreachable

@@ -23,7 +23,7 @@ class StatResult:
 
 class StatisticalDetector:
     def __init__(self, thresholds: dict | None = None):
-        # sane defaults, mirrors database/schema.sql seed values
+        # sane defaults, mirrors the Alembic threshold seed values
         self.t = {
             "entropy_high": 7.2,
             "dns_label_entropy": 3.8,

@@ -157,7 +157,7 @@ def extract_features(flow: dict) -> FlowFeatures:
         iat_variance=flow.get("iat_variance", 0.0),
         iat_cv=flow.get("iat_cv", coefficient_of_variation(iats)),
         iat_autocorr1=flow.get("iat_autocorr1", autocorrelation_lag1(iats)),
-        iat_bimodal=bimodal_ratio(iats),
+        iat_bimodal=flow.get("iat_bimodal", bimodal_ratio(iats)),
         packets=packets,
         bytes=nbytes,
         duration_ms=duration_ms,

@@ -1,9 +1,25 @@
 export function ipFromHostPort(hostPort) {
   if (!hostPort || typeof hostPort !== "string") return hostPort;
-  // Flows are always reported as "ip:port" (IPv4-only end to end today —
-  // see README) so a plain split on the last colon is safe here.
+  if (hostPort.startsWith("[")) {
+    const end = hostPort.indexOf("]");
+    if (end >= 0 && hostPort[end + 1] === ":") return hostPort.slice(1, end);
+  }
   const idx = hostPort.lastIndexOf(":");
   return idx === -1 ? hostPort : hostPort.slice(0, idx);
+}
+
+export function formatEndpoint(ip, port) {
+  if (typeof ip !== "string") return "";
+  if (port == null) return ip;
+  return ip.includes(":") ? `[${ip}]:${port}` : `${ip}:${port}`;
+}
+
+export function normalizeFlow(flow) {
+  return {
+    ...flow,
+    src: flow.src ?? formatEndpoint(flow.src_ip, flow.src_port),
+    dst: flow.dst ?? formatEndpoint(flow.dst_ip, flow.dst_port),
+  };
 }
 
 const API_KEY_STORAGE = "covertscope_api_key";

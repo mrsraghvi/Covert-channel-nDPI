@@ -15,9 +15,11 @@ from fastapi import (Depends, FastAPI, File, HTTPException, Query, Request,
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select, update
 
-from .database import (Alert, AsyncSessionLocal, BlockedIP, Flow, Threshold,
-                        init_models)
+from .database import (
+    Alert, AsyncSessionLocal, BlockedIP, Flow, Threshold, engine as db_engine,
+)
 from .engine import ConnectionManager, IngestEngine, tcp_ingest_server
+from .migrations import upgrade_database
 from .pcap_replay import PcapReplayError, parse_pcap
 from .schemas import (AlertOut, BlockCreate, BlockOut, CaptureStartRequest,
                        FlowOut, GeneratorStartRequest, StatsOut,
@@ -47,7 +49,7 @@ _MAX_PCAP_BYTES = 25 * 1024 * 1024
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_models()
+    await upgrade_database(db_engine)
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(select(BlockedIP).where(BlockedIP.active == True))).scalars().all()  # noqa: E712
         for r in rows:

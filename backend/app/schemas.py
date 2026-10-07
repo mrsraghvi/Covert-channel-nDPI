@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 # only ever contain these characters — anything else is not a real iface.
 _IFACE_RE = re.compile(r"^[a-zA-Z0-9_.\-]{1,15}$")
 
-# Known, whitelisted threshold keys — kept in sync with database/schema.sql's
+# Known, whitelisted threshold keys — kept in sync with Alembic's threshold
 # seed rows (the full set the system actually persists/reads), not just the
 # subset the current Control page happens to expose sliders for. A narrower
 # list here would silently reject legitimate updates to keys the UI doesn't
@@ -137,7 +137,7 @@ class CaptureStartRequest(BaseModel):
 class GeneratorStartRequest(BaseModel):
     technique: Literal["timing", "dns", "http", "icmp", "all"] = Field(default="all")
     target: str = Field(default="127.0.0.1")
-    message: str = Field(default="covertscope-test-payload", max_length=256)
+    message: str = Field(default="covertscope-lab-test-payload-12345", max_length=256)
     duration_s: int = Field(default=30, ge=1, le=300)
 
     @field_validator("target")

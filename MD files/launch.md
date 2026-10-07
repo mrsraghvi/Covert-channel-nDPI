@@ -29,6 +29,13 @@ If `.env` already exists, keep its values and confirm that `POSTGRES_PASSWORD`, 
 docker compose up -d
 ```
 
+On first startup, the backend applies the Alembic migrations before serving
+requests. Existing database volumes are adopted in place; migrations do not
+drop application tables or rows. Back up the Postgres volume before deploying
+an application update, as you should for any schema change.
+The Isolation Forest model and its learned traffic baseline are also kept in
+the `mlmodel` Docker volume across backend restarts.
+
 4. Verify that the containers are up and running:
 ```bash
 docker compose ps

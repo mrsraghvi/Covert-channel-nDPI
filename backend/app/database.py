@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import (BigInteger, Boolean, Column, DateTime, Float,
-                         ForeignKey, Integer, String, Text, func)
-from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
-                                     create_async_engine)
+from sqlalchemy import (
+    BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
+    String, Text, false, func, true,
+)
+from sqlalchemy.ext.asyncio import (
+    AsyncSession, async_sessionmaker, create_async_engine,
+)
 from sqlalchemy.orm import declarative_base
 
 DATABASE_URL = os.getenv(
@@ -59,7 +62,9 @@ class Flow(Base):
     covert_flags = Column(Integer, default=0)
     anomaly_score = Column(Float, default=0)
     is_covert = Column(Boolean, default=False)
-    blocked = Column(Boolean, default=False, nullable=False)  # src or dst matched an active BlockedIP entry
+    blocked = Column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )  # src or dst matched an active BlockedIP entry
 
     first_seen = Column(DateTime(timezone=True), server_default=func.now())
     last_seen = Column(DateTime(timezone=True), server_default=func.now())
@@ -111,16 +116,14 @@ class BlockedIP(Base):
     ip = Column(String(64), nullable=False, unique=True)
     reason = Column(Text)
     alert_id = Column(BigInteger, ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True)
-    active = Column(Boolean, default=True, nullable=False)
+    active = Column(Boolean, default=True, server_default=true(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+Index("idx_blocked_ips_active", BlockedIP.active)
 
 
 async def get_session() -> AsyncSession:
     async with AsyncSessionLocal() as session:
         yield session
-
-
-async def init_models():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)

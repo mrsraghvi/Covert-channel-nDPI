@@ -76,7 +76,7 @@ export default function Control({ demoMode, connected, blockedIps = new Map(), o
   async function toggleGenerator() {
     try {
       if (!generatorRunning) {
-        await api.generatorStart({ technique, target: "127.0.0.1", message: "covertscope-lab-test", duration_s: 30 });
+        await api.generatorStart({ technique, target: "127.0.0.1", duration_s: 30 });
         setGeneratorRunning(true);
         flash(`Lab generator started (${technique}) against 127.0.0.1`);
       } else {

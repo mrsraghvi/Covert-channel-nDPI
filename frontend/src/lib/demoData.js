@@ -1,3 +1,5 @@
+import { ipFromHostPort } from "./api";
+
 const BENIGN_PROTOCOLS = ["HTTPS", "QUIC", "TLS", "NTP", "SSH", "DNS", "HTTP"];
 const COVERT_TYPES = ["TIMING", "DNS", "HTTP", "ICMP"];
 
@@ -78,8 +80,8 @@ export function genAlert(flow) {
     confidence,
     reason: reasons[flow.covert_type],
     recommendation: recs[flow.covert_type],
-    src_ip: flow.src.split(":")[0],
-    dst_ip: flow.dst.split(":")[0],
+    src_ip: ipFromHostPort(flow.src),
+    dst_ip: ipFromHostPort(flow.dst),
     ts: flow.ts,
   };
 }

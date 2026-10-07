@@ -143,8 +143,11 @@ change to the backend container.
 
 ## What to extend next
 
-- IPv6 support in the C engine (currently IPv4-only for the packet parser).
-- Model persistence for the Isolation Forest (currently retrains in-memory each run).
-- Alembic migrations instead of the raw `schema.sql` bootstrap.
-- Per-user accounts / RBAC if you need more than one shared API key (see SECURITY.md).
-- TLS termination via a reverse proxy for anything beyond localhost — see `docs/enforce-https.md` for ready-to-use Caddy/nginx configs.
+- Validate all four generator signatures through live capture on the
+  isolated Linux lab VM before deployment.
+- Add idle-flow eviction to the C engine if very high concurrent flow
+  counts become a practical visibility issue.
+- Add per-user accounts / RBAC and shared rate-limiting only if the tool
+  expands beyond its current single-operator deployment model.
+- Configure TLS termination via a reverse proxy for anything beyond
+  localhost — see `docs/enforce-https.md` for ready-to-use Caddy/nginx configs.

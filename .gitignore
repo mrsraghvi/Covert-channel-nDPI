@@ -3,3 +3,4 @@
 /docker-compose.yml
 /covertscope-sample.pcap
 /frontend/node_modules/
+/detection/.data/

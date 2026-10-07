@@ -52,6 +52,8 @@ static int g_authenticated = 0;
 #define IAT_SAMPLE_MAX    64      /* ring buffer of inter-arrival samples */
 #define PAYLOAD_SAMPLE_MAX 512    /* bytes sampled per flow for entropy   */
 #define ETH_HDR_LEN       14
+#define IPV4_HEADER_MIN   20
+#define IPV6_HEADER_LEN   40
 
 /* ------------------------------------------------------------------ */
 /* Per-flow tracking state (on top of nDPI's own flow struct)         */
@@ -61,7 +63,8 @@ typedef struct flow_info {
     uint64_t flow_id;
 
     /* 5-tuple */
-    uint32_t src_ip, dst_ip;
+    uint8_t ip_version;
+    uint8_t src_ip[16], dst_ip[16];
     uint16_t src_port, dst_port;
     uint8_t  l4_proto;   /* IPPROTO_TCP / UDP / ICMP */
 
@@ -183,6 +186,37 @@ static void iat_stats(const double *samples, int n, double *mean, double *var,
     }
 }
 
+static double iat_bimodal_ratio(const double *samples, int n) {
+    if (n < 4) return 0.0;
+
+    double sorted[IAT_SAMPLE_MAX];
+    memcpy(sorted, samples, (size_t)n * sizeof(*sorted));
+    for (int i = 1; i < n; i++) {
+        double value = sorted[i];
+        int j = i - 1;
+        while (j >= 0 && sorted[j] > value) {
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = value;
+    }
+
+    int tail = n / 8;
+    if (tail < 1) tail = 1;
+    double low = sorted[n / 8];
+    double high = sorted[n - tail];
+    if (high == low) return 0.0;
+
+    double span = high - low;
+    int near_clusters = 0;
+    for (int i = 0; i < n; i++) {
+        if (fabs(samples[i] - low) <= 0.15 * span ||
+            fabs(samples[i] - high) <= 0.15 * span)
+            near_clusters++;
+    }
+    return (double)near_clusters / n;
+}
+
 static uint64_t now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -192,18 +226,30 @@ static uint64_t now_ms(void) {
 /* ------------------------------------------------------------------ */
 /* Flow table (linear-probe hash on the 5-tuple)                      */
 /* ------------------------------------------------------------------ */
-static uint32_t flow_hash(uint32_t sip, uint32_t dip, uint16_t sp, uint16_t dp, uint8_t proto) {
-    uint32_t h = sip * 2654435761u ^ dip * 40503u ^ ((uint32_t)sp << 16 | dp) ^ proto;
+static uint32_t flow_hash(const uint8_t *sip, const uint8_t *dip, uint8_t ip_version,
+                          uint16_t sp, uint16_t dp, uint8_t proto) {
+    uint32_t h = 2166136261u;
+    size_t addr_len = ip_version == 4 ? 4 : 16;
+    for (size_t i = 0; i < addr_len; i++) {
+        h = (h ^ sip[i]) * 16777619u;
+        h = (h ^ dip[i]) * 16777619u;
+    }
+    h = (h ^ ip_version) * 16777619u;
+    h ^= ((uint32_t)sp << 16 | dp) ^ proto;
     return h % MAX_FLOWS;
 }
 
-static flow_info_t *flow_lookup_or_create(uint32_t sip, uint32_t dip, uint16_t sp,
+static flow_info_t *flow_lookup_or_create(const uint8_t *sip, const uint8_t *dip,
+                                           uint8_t ip_version, uint16_t sp,
                                            uint16_t dp, uint8_t proto, int *is_new) {
-    uint32_t idx = flow_hash(sip, dip, sp, dp, proto);
+    size_t addr_len = ip_version == 4 ? 4 : 16;
+    uint32_t idx = flow_hash(sip, dip, ip_version, sp, dp, proto);
     for (uint32_t probe = 0; probe < MAX_FLOWS; probe++) {
         uint32_t i = (idx + probe) % MAX_FLOWS;
         flow_info_t *f = &g_flows[i];
-        if (f->in_use && f->src_ip == sip && f->dst_ip == dip &&
+        if (f->in_use && f->ip_version == ip_version &&
+            memcmp(f->src_ip, sip, addr_len) == 0 &&
+            memcmp(f->dst_ip, dip, addr_len) == 0 &&
             f->src_port == sp && f->dst_port == dp && f->l4_proto == proto) {
             *is_new = 0;
             return f;
@@ -212,7 +258,9 @@ static flow_info_t *flow_lookup_or_create(uint32_t sip, uint32_t dip, uint16_t s
             memset(f, 0, sizeof(*f));
             f->in_use = 1;
             f->flow_id = ++g_flow_id_counter;
-            f->src_ip = sip; f->dst_ip = dip;
+            f->ip_version = ip_version;
+            memcpy(f->src_ip, sip, addr_len);
+            memcpy(f->dst_ip, dip, addr_len);
             f->src_port = sp; f->dst_port = dp;
             f->l4_proto = proto;
             f->ndpi_flow = (struct ndpi_flow_struct *)ndpi_flow_malloc(
@@ -238,13 +286,15 @@ static const char *l4_name(uint8_t proto) {
         case IPPROTO_TCP:  return "TCP";
         case IPPROTO_UDP:  return "UDP";
         case IPPROTO_ICMP: return "ICMP";
+        case IPPROTO_ICMPV6: return "ICMP";
         default:           return "OTHER";
     }
 }
 
-static void ip_to_str(uint32_t ip_be, char *out, size_t outlen) {
-    struct in_addr a; a.s_addr = ip_be;
-    snprintf(out, outlen, "%s", inet_ntoa(a));
+static void ip_to_str(uint8_t ip_version, const uint8_t *ip, char *out, size_t outlen) {
+    int family = ip_version == 4 ? AF_INET : AF_INET6;
+    if (!inet_ntop(family, ip, out, (socklen_t)outlen))
+        out[0] = '\0';
 }
 
 /* Export a flow record as JSON and send to the backend */
@@ -252,12 +302,21 @@ static void export_flow(flow_info_t *f) {
     if (f->exported) return;
     f->exported = 1;
 
-    char src_ip[32], dst_ip[32];
-    ip_to_str(f->src_ip, src_ip, sizeof(src_ip));
-    ip_to_str(f->dst_ip, dst_ip, sizeof(dst_ip));
+    char src_ip[INET6_ADDRSTRLEN], dst_ip[INET6_ADDRSTRLEN];
+    char src_endpoint[INET6_ADDRSTRLEN + 10], dst_endpoint[INET6_ADDRSTRLEN + 10];
+    ip_to_str(f->ip_version, f->src_ip, src_ip, sizeof(src_ip));
+    ip_to_str(f->ip_version, f->dst_ip, dst_ip, sizeof(dst_ip));
+    if (f->ip_version == 6) {
+        snprintf(src_endpoint, sizeof(src_endpoint), "[%s]:%u", src_ip, f->src_port);
+        snprintf(dst_endpoint, sizeof(dst_endpoint), "[%s]:%u", dst_ip, f->dst_port);
+    } else {
+        snprintf(src_endpoint, sizeof(src_endpoint), "%s:%u", src_ip, f->src_port);
+        snprintf(dst_endpoint, sizeof(dst_endpoint), "%s:%u", dst_ip, f->dst_port);
+    }
 
     double mean, var, cv, ac1;
     iat_stats(f->iat_samples, f->iat_count, &mean, &var, &cv, &ac1);
+    double iat_bimodal = iat_bimodal_ratio(f->iat_samples, f->iat_count);
 
     double payload_entropy = shannon_entropy(f->payload_sample, f->payload_sample_len);
     uint32_t duration_ms = (uint32_t)(f->last_seen_ms - f->first_seen_ms);
@@ -298,20 +357,20 @@ static void export_flow(flow_info_t *f) {
     snprintf(json, sizeof(json),
         "{"
         "\"type\":\"flow\",\"flow_id\":%llu,"
-        "\"src\":\"%s:%u\",\"dst\":\"%s:%u\","
+        "\"src\":\"%s\",\"dst\":\"%s\","
         "\"protocol\":\"%s\",\"ndpi_proto_id\":%u,\"l4_proto\":\"%s\","
         "\"packets\":%u,\"bytes\":%llu,\"duration_ms\":%u,"
-        "\"iat_mean\":%.3f,\"iat_variance\":%.3f,\"iat_cv\":%.4f,\"iat_autocorr1\":%.4f,"
+        "\"iat_mean\":%.3f,\"iat_variance\":%.3f,\"iat_cv\":%.4f,\"iat_autocorr1\":%.4f,\"iat_bimodal\":%.4f,"
         "\"payload_entropy\":%.3f,"
         "\"dns_query\":\"%s\",\"dns_entropy\":%.3f,\"dns_qlen\":%d,"
         "\"http_host\":\"%s\",\"http_user_agent\":\"%s\",\"http_url\":\"%s\",\"http_ua_entropy\":%.3f,"
         "\"icmp_payload_len\":%d,\"icmp_payload_entropy\":%.3f,"
         "\"covert_flags\":0,\"ts\":%llu"
         "}",
-        (unsigned long long)f->flow_id, src_ip, f->src_port, dst_ip, f->dst_port,
+        (unsigned long long)f->flow_id, src_endpoint, dst_endpoint,
         pname, f->detected_protocol.proto.master_protocol, l4_name(f->l4_proto),
         f->packets, (unsigned long long)f->bytes, duration_ms,
-        mean, var, cv, ac1,
+        mean, var, cv, ac1, iat_bimodal,
         payload_entropy,
         host, dns_entropy, dns_qlen,
         host, http_ua, http_url, http_ua_entropy,
@@ -341,23 +400,76 @@ static void packet_handler(u_char *user, const struct pcap_pkthdr *hdr, const u_
     (void)user;
     g_total_packets++;
 
-    if (hdr->caplen < ETH_HDR_LEN + 20) return; /* not enough for eth+ip */
+    if (hdr->caplen < ETH_HDR_LEN) return;
 
     uint16_t ethertype = ntohs(*(uint16_t *)(pkt + 12));
-    if (ethertype != 0x0800) return; /* IPv4 only in this build */
-
     const u_char *ip_pkt = pkt + ETH_HDR_LEN;
-    uint8_t ihl = (ip_pkt[0] & 0x0F) * 4;
-    if (hdr->caplen < (uint32_t)(ETH_HDR_LEN + ihl)) return;
+    uint32_t captured_ip_len = hdr->caplen - ETH_HDR_LEN;
+    uint32_t ip_len, l4_len;
+    uint8_t ip_version, proto;
+    uint8_t src_ip[16] = {0}, dst_ip[16] = {0};
+    const u_char *l4;
 
-    uint8_t proto = ip_pkt[9];
-    uint32_t src_ip, dst_ip;
-    memcpy(&src_ip, ip_pkt + 12, 4);
-    memcpy(&dst_ip, ip_pkt + 16, 4);
+    if (ethertype == 0x0800) {
+        if (captured_ip_len < IPV4_HEADER_MIN || (ip_pkt[0] >> 4) != 4) return;
+        uint8_t ihl = (ip_pkt[0] & 0x0F) * 4;
+        if (ihl < IPV4_HEADER_MIN || captured_ip_len < ihl) return;
+        uint16_t total_len;
+        memcpy(&total_len, ip_pkt + 2, sizeof(total_len));
+        total_len = ntohs(total_len);
+        if (total_len < ihl || captured_ip_len < total_len) return;
+        ip_version = 4;
+        ip_len = total_len;
+        proto = ip_pkt[9];
+        memcpy(src_ip, ip_pkt + 12, 4);
+        memcpy(dst_ip, ip_pkt + 16, 4);
+        l4 = ip_pkt + ihl;
+        l4_len = total_len - ihl;
+    } else if (ethertype == 0x86DD) {
+        if (captured_ip_len < IPV6_HEADER_LEN || (ip_pkt[0] >> 4) != 6) return;
+        uint16_t payload_len;
+        memcpy(&payload_len, ip_pkt + 4, sizeof(payload_len));
+        payload_len = ntohs(payload_len);
+        uint32_t total_len = IPV6_HEADER_LEN + (uint32_t)payload_len;
+        if (captured_ip_len < total_len) return;
+        ip_version = 6;
+        ip_len = total_len;
+        proto = ip_pkt[6];
+        memcpy(src_ip, ip_pkt + 8, 16);
+        memcpy(dst_ip, ip_pkt + 24, 16);
+        l4 = ip_pkt + IPV6_HEADER_LEN;
+        l4_len = payload_len;
+
+        for (int extensions = 0; extensions < 8; extensions++) {
+            uint32_t extension_len;
+            if (proto == 0 || proto == 43 || proto == 60 || proto == 135) {
+                if (l4_len < 2) return;
+                extension_len = ((uint32_t)l4[1] + 1) * 8;
+            } else if (proto == 44) {
+                if (l4_len < 8) return;
+                uint16_t fragment;
+                memcpy(&fragment, l4 + 2, sizeof(fragment));
+                if (ntohs(fragment) & 0xFFF9) return;
+                extension_len = 8;
+            } else if (proto == 51) {
+                if (l4_len < 2) return;
+                extension_len = ((uint32_t)l4[1] + 2) * 4;
+            } else {
+                break;
+            }
+            if (extension_len > l4_len) return;
+            proto = l4[0];
+            l4 += extension_len;
+            l4_len -= extension_len;
+        }
+        if (proto == 0 || proto == 43 || proto == 44 || proto == 51 ||
+            proto == 60 || proto == 135)
+            return;
+    } else {
+        return;
+    }
 
     uint16_t src_port = 0, dst_port = 0;
-    const u_char *l4 = ip_pkt + ihl;
-    uint32_t l4_len = ntohs(*(uint16_t *)(ip_pkt + 2)) - ihl;
     const u_char *payload = l4;
     uint32_t payload_len = l4_len;
 
@@ -372,13 +484,14 @@ static void packet_handler(u_char *user, const struct pcap_pkthdr *hdr, const u_
         memcpy(&dst_port, l4 + 2, 2); dst_port = ntohs(dst_port);
         payload = l4 + 8;
         payload_len = (l4_len > 8) ? l4_len - 8 : 0;
-    } else if (proto == IPPROTO_ICMP) {
+    } else if (proto == IPPROTO_ICMP || proto == IPPROTO_ICMPV6) {
         payload = l4 + 8; /* skip icmp type/code/checksum/id/seq */
         payload_len = (l4_len > 8) ? l4_len - 8 : 0;
     }
 
     int is_new;
-    flow_info_t *f = flow_lookup_or_create(src_ip, dst_ip, src_port, dst_port, proto, &is_new);
+    flow_info_t *f = flow_lookup_or_create(src_ip, dst_ip, ip_version,
+                                            src_port, dst_port, proto, &is_new);
     if (!f) return;
 
     uint64_t pkt_ms = (uint64_t)hdr->ts.tv_sec * 1000ULL + hdr->ts.tv_usec / 1000ULL;
@@ -392,7 +505,8 @@ static void packet_handler(u_char *user, const struct pcap_pkthdr *hdr, const u_
     f->packets++;
     f->bytes += hdr->len;
 
-    if (proto == IPPROTO_ICMP) f->icmp_payload_len = (int)payload_len;
+    if (proto == IPPROTO_ICMP || proto == IPPROTO_ICMPV6)
+        f->icmp_payload_len = (int)payload_len;
 
     /* sample payload bytes for entropy (cap to keep this O(1) per packet) */
     if (payload_len > 0 && f->payload_sample_len < PAYLOAD_SAMPLE_MAX) {
@@ -405,7 +519,7 @@ static void packet_handler(u_char *user, const struct pcap_pkthdr *hdr, const u_
 
     if (f->ndpi_flow && f->detected_protocol.proto.master_protocol == 0) {
         f->detected_protocol = ndpi_detection_process_packet(
-            g_ndpi, f->ndpi_flow, ip_pkt, (uint16_t)(hdr->caplen - ETH_HDR_LEN),
+            g_ndpi, f->ndpi_flow, ip_pkt, (uint16_t)ip_len,
             pkt_ms, NULL);
     }
 

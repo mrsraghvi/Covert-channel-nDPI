@@ -71,6 +71,31 @@ describe("Flows", () => {
     expect(screen.queryByRole("heading", { name: "Block 192.0.2.30?" })).toBeNull();
   });
 
+  it("submits an unbracketed IPv6 source address when blocking a flow", () => {
+    const onBlock = vi.fn();
+    render(
+      <Flows
+        flows={[{
+          id: 3,
+          src: "[2001:db8::1]:41000",
+          dst: "[2001:db8::2]:443",
+          protocol: "TLS",
+          packets: 4,
+          bytes: 512,
+          anomaly_score: 0.2,
+          is_covert: false,
+        }]}
+        onBlock={onBlock}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Block" }));
+    expect(screen.getByRole("heading", { name: "Block 2001:db8::1?" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm block" }));
+
+    expect(onBlock).toHaveBeenCalledWith("2001:db8::1", expect.any(String), null);
+  });
+
   it("unblocks an IP already on the blocklist", () => {
     const onUnblock = vi.fn();
     render(

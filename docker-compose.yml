@@ -15,7 +15,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-covertscope}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     # Not published to the host — only the backend (on the compose network)
     # needs to reach Postgres. Uncomment if you need host-side psql access.
     # ports:
@@ -36,6 +35,9 @@ services:
       COVERTSCOPE_API_KEY: ${COVERTSCOPE_API_KEY:?set COVERTSCOPE_API_KEY in .env, e.g. `openssl rand -hex 32`}
       COVERTSCOPE_INGEST_SECRET: ${COVERTSCOPE_INGEST_SECRET:?set COVERTSCOPE_INGEST_SECRET in .env, e.g. `openssl rand -hex 32`}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      COVERTSCOPE_ML_MODEL_PATH: /var/lib/covertscope/ml_detector.joblib
+    volumes:
+      - mlmodel:/var/lib/covertscope
     depends_on:
       db:
         condition: service_healthy
@@ -81,6 +83,7 @@ services:
 
 volumes:
   pgdata:
+  mlmodel:
 
 # ---------------------------------------------------------------------------
 # The nDPI C engine (ndpi-engine/covert_detector) is NOT containerized here:
