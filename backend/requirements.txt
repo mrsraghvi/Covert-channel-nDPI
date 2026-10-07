@@ -1,0 +1,11 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+websockets==17.1
+pydantic==2.13.5
+sqlalchemy[asyncio]==2.0.52
+asyncpg==0.31.0
+scikit-learn==1.9.0
+numpy==2.5.3
+joblib==1.6.0
+python-multipart==0.0.32
+dpkt==1.9.8

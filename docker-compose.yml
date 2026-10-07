@@ -1,0 +1,90 @@
+version: "3.9"
+
+# Secrets are sourced from a local .env file (see .env.example) — nothing
+# sensitive is hardcoded here. Compose's `${VAR:?message}` fails the whole
+# `up` with a clear error instead of silently starting with an empty/default
+# credential, so copy .env.example to .env and fill it in before first run:
+#
+#   cp .env.example .env
+#   # edit .env: set POSTGRES_PASSWORD, COVERTSCOPE_API_KEY, COVERTSCOPE_INGEST_SECRET
+#   docker-compose up -d
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-covertscope}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-covertscope}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    # Not published to the host — only the backend (on the compose network)
+    # needs to reach Postgres. Uncomment if you need host-side psql access.
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-covertscope}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-covertscope}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-covertscope}
+      COVERTSCOPE_API_KEY: ${COVERTSCOPE_API_KEY:?set COVERTSCOPE_API_KEY in .env, e.g. `openssl rand -hex 32`}
+      COVERTSCOPE_INGEST_SECRET: ${COVERTSCOPE_INGEST_SECRET:?set COVERTSCOPE_INGEST_SECRET in .env, e.g. `openssl rand -hex 32`}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"   # REST + WebSocket API
+      - "9999:9999"   # nDPI C engine ingest socket (requires COVERTSCOPE_INGEST_SECRET, see above)
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  frontend:
+    # Deliberately does NOT receive COVERTSCOPE_API_KEY: baking a secret into
+    # a static bundle served to any browser that loads the page would defeat
+    # the point of it (view-source gets it straight back out). The dashboard
+    # prompts for the key at runtime instead and holds it only in
+    # sessionStorage — see frontend/src/lib/api.js.
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - default
+
+volumes:
+  pgdata:
+
+# ---------------------------------------------------------------------------
+# The nDPI C engine (ndpi-engine/covert_detector) is NOT containerized here:
+# live packet capture needs host networking + CAP_NET_RAW/CAP_NET_ADMIN, so
+# it's meant to be built and run directly on the lab VM host, e.g.:
+#
+#   cd ndpi-engine && make
+#   sudo COVERTSCOPE_INGEST_SECRET=<same value as in .env> ./covert_detector eth0
+#
+# It streams JSON flow records to backend:9999, authenticating with the
+# shared secret above. If you do want it in Docker, run the backend
+# container with `network_mode: host` and add:
+#   cap_add: [NET_RAW, NET_ADMIN]
+# to a dedicated ndpi-engine service, then point BACKEND_HOST at localhost.
+# ---------------------------------------------------------------------------

@@ -1,0 +1,2 @@
+# generator.py only uses the Python standard library (socket, base64, argparse).
+# This file is kept for parity with the other modules / future extensions.
