@@ -12,7 +12,7 @@ jobs:
     env:
       POSTGRES_USER: covertscope
       POSTGRES_PASSWORD: ci-only-postgres-password
-      POSTGRES_DB: covertscope
+      POSTGRES_DB: covertscope_test
       COVERTSCOPE_API_KEY: ci-only-api-key-not-for-deployment
       COVERTSCOPE_INGEST_SECRET: ci-only-ingest-secret-not-for-deployment
       CORS_ORIGINS: http://localhost:3000
@@ -54,6 +54,13 @@ jobs:
 
       - name: Build and start Docker services
         run: docker compose up --build -d --wait --wait-timeout 90
+
+      - name: Run PostgreSQL blocklist integration test
+        run: |
+          docker compose run --rm --no-deps \
+            -e COVERTSCOPE_TEST_DATABASE_URL="postgresql+asyncpg://covertscope:${POSTGRES_PASSWORD}@db:5432/covertscope_test" \
+            -v "${GITHUB_WORKSPACE}/backend/tests:/app/tests:ro" \
+            backend python -m unittest discover -s /app/tests -p "test_blocklist_postgres.py" -v
 
       - name: Smoke-test backend API and frontend
         run: |

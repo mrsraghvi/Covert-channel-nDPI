@@ -79,12 +79,12 @@ that completes/adds a task — don't let it drift from reality.
 Roughly ordered by "would catch a real problem" first.
 
 ### Should do soon
-- [ ] **Verify the blocklist upsert path against real Postgres.** It was
-      only tested against a hand-built in-memory fake session (local
-      Postgres wasn't reachable during that work — stale apt mirror). The
-      fake was built incrementally and got two things wrong on the way
-      (UPDATE rowcount semantics, SELECT-all semantics) before being
-      fixed — a real integration test would close this out properly.
+- [x] **Verify the blocklist upsert path against real Postgres.**
+      `backend/tests/test_blocklist_postgres.py` verifies persistence,
+      deactivation, reactivation/upsert, and active-only listing against a
+      dedicated `covertscope_test` database. It is opt-in for local runs
+      through `COVERTSCOPE_TEST_DATABASE_URL` and runs in CI against the
+      Compose Postgres service.
 - [ ] **Alembic migrations.** Schema changes currently mean editing both
       `database.py` (SQLAlchemy models, used by `create_all` at startup)
       and `database/schema.sql` (the Docker Postgres bootstrap) by hand
