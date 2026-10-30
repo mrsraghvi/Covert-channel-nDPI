@@ -17,6 +17,9 @@ import string
 import time
 
 BENIGN_PROTOCOLS = ["HTTPS", "QUIC", "TLS", "NTP", "SSH", "DNS", "HTTP"]
+DEFAULT_COVERT_RATIO = 0.05
+MIN_FLOW_INTERVAL_SECONDS = 2.0
+MAX_FLOW_INTERVAL_SECONDS = 4.0
 
 
 def _rand_ip(private: bool = True) -> str:
@@ -144,15 +147,17 @@ def covert_flow(flow_id: int, technique: str | None = None) -> dict:
     return base
 
 
-async def run_simulator(engine, stop_event: asyncio.Event, covert_ratio: float = 0.12):
-    """Continuously feeds synthetic flows into the ingest engine until
-    stop_event is set. Mimics realistic pacing (a few flows/sec)."""
+async def run_simulator(engine, stop_event: asyncio.Event, covert_ratio: float = DEFAULT_COVERT_RATIO):
+    """Feed synthetic flows at a paced rate until stop_event is set."""
     flow_id = int(time.time())
+    generated_flows = 0
+    covert_interval = round(1 / covert_ratio) if covert_ratio > 0 else None
     while not stop_event.is_set():
         flow_id += 1
-        if random.random() < covert_ratio:
+        generated_flows += 1
+        if covert_interval and generated_flows % covert_interval == 0:
             record = covert_flow(flow_id)
         else:
             record = benign_flow(flow_id)
         await engine.ingest(record)
-        await asyncio.sleep(random.uniform(0.15, 0.6))
+        await asyncio.sleep(random.uniform(MIN_FLOW_INTERVAL_SECONDS, MAX_FLOW_INTERVAL_SECONDS))

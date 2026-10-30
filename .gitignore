@@ -3,4 +3,6 @@
 /docker-compose.yml
 /covertscope-sample.pcap
 /frontend/node_modules/
+/frontend/playwright-report/
+/frontend/test-results/
 /detection/.data/

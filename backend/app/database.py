@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession, async_sessionmaker, create_async_engine,
 )
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.dialects.postgresql import INET
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -27,9 +28,9 @@ class Flow(Base):
 
     id = Column(BigInteger, primary_key=True)
     flow_uid = Column(BigInteger, nullable=False)
-    src_ip = Column(String(64), nullable=False)
+    src_ip = Column(INET, nullable=False)
     src_port = Column(Integer)
-    dst_ip = Column(String(64), nullable=False)
+    dst_ip = Column(INET, nullable=False)
     dst_port = Column(Integer)
     l4_proto = Column(String(8))
     ndpi_protocol = Column(String(64))

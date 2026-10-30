@@ -198,8 +198,8 @@ async def get_flows(
         rows = (await session.execute(stmt)).scalars().all()
         return [
             FlowOut(
-                id=r.id, flow_uid=r.flow_uid, src_ip=r.src_ip, src_port=r.src_port,
-                dst_ip=r.dst_ip, dst_port=r.dst_port, l4_proto=r.l4_proto,
+                id=r.id, flow_uid=r.flow_uid, src_ip=str(r.src_ip), src_port=r.src_port,
+                dst_ip=str(r.dst_ip), dst_port=r.dst_port, l4_proto=r.l4_proto,
                 ndpi_protocol=r.ndpi_protocol, packets=r.packets, bytes=r.bytes,
                 duration_ms=r.duration_ms, iat_mean=r.iat_mean, iat_cv=r.iat_cv,
                 payload_entropy=r.payload_entropy, dns_query=r.dns_query,
@@ -238,7 +238,8 @@ async def get_alerts(
                 stat_score=a.stat_score, ml_score=a.ml_score, final_score=a.final_score,
                 confidence=a.confidence, reason=a.reason, recommendation=a.recommendation,
                 acknowledged=a.acknowledged, created_at=a.created_at,
-                src_ip=src_ip, dst_ip=dst_ip,
+                src_ip=str(src_ip) if src_ip is not None else None,
+                dst_ip=str(dst_ip) if dst_ip is not None else None,
             )
             for a, src_ip, dst_ip in rows
         ]

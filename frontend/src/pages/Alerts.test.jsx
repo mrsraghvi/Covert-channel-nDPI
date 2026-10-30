@@ -69,7 +69,8 @@ describe("Alerts", () => {
 
   it("expands alert reasoning and acknowledges only once", async () => {
     api.ackAlert.mockResolvedValue({});
-    render(<Alerts alerts={alerts} />);
+    const onAcknowledge = vi.fn();
+    render(<Alerts alerts={alerts} onAcknowledge={onAcknowledge} />);
 
     fireEvent.click(screen.getByRole("button", { name: /flow #300/ }));
     expect(screen.getByText("High-volume DNS tunnel")).not.toBeNull();
@@ -79,6 +80,15 @@ describe("Alerts", () => {
     expect(await screen.findByRole("button", { name: "Acknowledged" })).not.toBeNull();
     expect(api.ackAlert).toHaveBeenCalledOnce();
     expect(api.ackAlert).toHaveBeenCalledWith(30);
+    expect(onAcknowledge).toHaveBeenCalledOnce();
+    expect(onAcknowledge).toHaveBeenCalledWith(30);
+    expect(screen.getByRole("button", { name: "Acknowledged" }).disabled).toBe(true);
+  });
+
+  it("keeps alerts acknowledged by the backend marked after rendering", () => {
+    render(<Alerts alerts={[{ ...alerts[1], acknowledged: true }]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /flow #200/ }));
     expect(screen.getByRole("button", { name: "Acknowledged" }).disabled).toBe(true);
   });
 

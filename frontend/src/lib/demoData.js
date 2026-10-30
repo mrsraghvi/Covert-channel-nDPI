@@ -2,6 +2,9 @@ import { ipFromHostPort } from "./api";
 
 const BENIGN_PROTOCOLS = ["HTTPS", "QUIC", "TLS", "NTP", "SSH", "DNS", "HTTP"];
 const COVERT_TYPES = ["TIMING", "DNS", "HTTP", "ICMP"];
+export const DEMO_INITIAL_FLOW_COUNT = 10;
+export const DEMO_FLOW_INTERVAL_MS = 3000;
+export const DEMO_ALERT_INTERVAL_FLOWS = 20;
 
 let flowCounter = 1000;
 
@@ -86,13 +89,13 @@ export function genAlert(flow) {
   };
 }
 
-export function makeInitialHistory(n = 60) {
+export function makeInitialHistory(n = DEMO_INITIAL_FLOW_COUNT) {
   const flows = [];
   const alerts = [];
   for (let i = 0; i < n; i++) {
-    const covert = Math.random() < 0.12;
+    const covert = (i + 1) % DEMO_ALERT_INTERVAL_FLOWS === 0;
     const f = covert ? genCovertFlow() : genBenignFlow();
-    f.ts = Date.now() - (n - i) * 1500;
+    f.ts = Date.now() - (n - i - 1) * DEMO_FLOW_INTERVAL_MS;
     flows.push(f);
     if (covert) alerts.push(genAlert(f));
   }

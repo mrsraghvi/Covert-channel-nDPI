@@ -7,7 +7,7 @@ import { api } from "../lib/api";
 const CONFIDENCE_ORDER = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
 const TYPES = ["ALL", "TIMING", "DNS", "HTTP", "ICMP", "GENERIC"];
 
-export default function Alerts({ alerts, blockedIps = new Map(), onBlock, onUnblock }) {
+export default function Alerts({ alerts, blockedIps = new Map(), onBlock, onUnblock, onAcknowledge }) {
   const [minConfidence, setMinConfidence] = useState("LOW");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [expanded, setExpanded] = useState(null);
@@ -24,6 +24,7 @@ export default function Alerts({ alerts, blockedIps = new Map(), onBlock, onUnbl
 
   async function handleAck(alert) {
     setAcked((prev) => new Set(prev).add(alert.id));
+    onAcknowledge?.(alert.id);
     try {
       await api.ackAlert(alert.id);
     } catch {
@@ -99,7 +100,7 @@ export default function Alerts({ alerts, blockedIps = new Map(), onBlock, onUnbl
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map((a) => {
             const isOpen = expanded === (a.id ?? a.flow_id);
-            const isAcked = acked.has(a.id);
+            const isAcked = a.acknowledged || acked.has(a.id);
             return (
               <div key={a.id ?? `${a.flow_id}-${a.created_at}`} className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <button

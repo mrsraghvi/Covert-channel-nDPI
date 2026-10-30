@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -148,6 +149,8 @@ class IngestEngine:
         src_ip = src_ip or "0.0.0.0"
         dst_ip = dst_ip or "0.0.0.0"
         is_blocked = self.is_blocked(src_ip) or self.is_blocked(dst_ip)
+        src_address = ipaddress.ip_address(src_ip)
+        dst_address = ipaddress.ip_address(dst_ip)
 
         now = time.time()
         self.totals["packets"] += raw_flow.get("packets", 0)
@@ -159,9 +162,9 @@ class IngestEngine:
         async with AsyncSessionLocal() as session:
             db_flow = Flow(
                 flow_uid=flow_id,
-                src_ip=src_ip,
+                src_ip=src_address,
                 src_port=src_port,
-                dst_ip=dst_ip,
+                dst_ip=dst_address,
                 dst_port=dst_port,
                 l4_proto=raw_flow.get("l4_proto", "TCP"),
                 ndpi_protocol=raw_flow.get("protocol", "Unknown"),

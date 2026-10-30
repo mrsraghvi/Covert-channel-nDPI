@@ -3,13 +3,11 @@ import { useState, Suspense, lazy } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import ApiKeyGate from "./components/ApiKeyGate";
-import Dashboard from "./pages/Dashboard";
 import { useLiveData } from "./hooks/useLiveData";
 
-// Lazy-loaded: these aren't needed for first paint (the landing route is
-// Dashboard), and Analysis in particular pulls in most of the app's
-// recharts usage — splitting it out measurably shrinks the initial bundle
-// instead of shipping chart-library code nobody's looking at yet.
+// Load route pages after the app shell so chart dependencies do not inflate
+// the initial bundle, especially for users who navigate away from Dashboard.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Flows = lazy(() => import("./pages/Flows"));
 const Alerts = lazy(() => import("./pages/Alerts"));
 const Analysis = lazy(() => import("./pages/Analysis"));
@@ -27,7 +25,7 @@ function RouteFallback() {
 export default function App() {
   const {
     connected, demoMode, needsApiKey, retry, useDemoInstead,
-    flows, alerts, stats, blockedIps, blockIp, unblockIp,
+    flows, alerts, stats, blockedIps, blockIp, unblockIp, acknowledgeAlert,
   } = useLiveData();
   const [manualGate, setManualGate] = useState(false);
 
@@ -41,7 +39,7 @@ export default function App() {
           connected={connected}
           demoMode={demoMode}
           packetsPerSec={stats?.packets_per_sec ?? 0}
-          activeAlerts={alerts.filter((a) => a.confidence === "CRITICAL" || a.confidence === "HIGH").length}
+          activeAlerts={alerts.filter((a) => !a.acknowledged && (a.confidence === "CRITICAL" || a.confidence === "HIGH")).length}
           onOpenApiKey={() => setManualGate(true)}
         />
         <main style={{ flex: 1, overflowY: "auto", padding: "24px 28px 60px" }}>
@@ -49,7 +47,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Dashboard flows={flows} alerts={alerts} stats={stats} />} />
               <Route path="/flows" element={<Flows flows={flows} blockedIps={blockedIps} onBlock={blockIp} onUnblock={unblockIp} />} />
-              <Route path="/alerts" element={<Alerts alerts={alerts} blockedIps={blockedIps} onBlock={blockIp} onUnblock={unblockIp} />} />
+              <Route path="/alerts" element={<Alerts alerts={alerts} blockedIps={blockedIps} onBlock={blockIp} onUnblock={unblockIp} onAcknowledge={acknowledgeAlert} />} />
               <Route path="/analysis" element={<Analysis flows={flows} alerts={alerts} stats={stats} />} />
               <Route
                 path="/control"

@@ -141,6 +141,42 @@ change to the backend container.
 
 ---
 
+## Testing
+
+Frontend unit tests and the production build:
+```bash
+cd frontend
+npm ci
+npm test
+npm run build
+```
+
+Browser end-to-end tests require the Docker Compose stack to be running and
+healthy, plus Node.js. Install the Playwright-managed Chromium browser once:
+```bash
+cd frontend
+npm ci
+npx playwright install chromium
+```
+
+On PowerShell, set the API key from the running backend without printing it,
+then run the serial browser suite:
+```powershell
+cd frontend
+$env:COVERTSCOPE_API_KEY = (docker compose -f ..\docker-compose.yml exec -T backend sh -lc 'printf %s "$COVERTSCOPE_API_KEY"').Trim()
+npm run test:e2e
+Remove-Item Env:COVERTSCOPE_API_KEY
+```
+
+The E2E tests cover API-key authentication, alert acknowledgement, blocklist
+persistence, and capture/dashboard behavior. The capture test uses deterministic
+browser fixtures for flow/stat rendering while exercising the real capture
+start/stop API; it does not start native packet capture or generate traffic.
+See [the runtime validation report](docs/runtime-validation-report.md) for
+test results and coverage boundaries.
+
+---
+
 ## What to extend next
 
 - Validate all four generator signatures through live capture on the

@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api, connectSocket, ApiAuthError, getApiKey, ipFromHostPort, normalizeFlow } from "../lib/api";
-import { genBenignFlow, genCovertFlow, genAlert, makeInitialHistory } from "../lib/demoData";
+import {
+  DEMO_ALERT_INTERVAL_FLOWS,
+  DEMO_INITIAL_FLOW_COUNT,
+  DEMO_FLOW_INTERVAL_MS,
+  genBenignFlow,
+  genCovertFlow,
+  genAlert,
+  makeInitialHistory,
+} from "../lib/demoData";
 
 const MAX_FLOWS = 300;
 const MAX_ALERTS = 200;
@@ -9,6 +17,9 @@ export function useLiveData() {
   const [connected, setConnected] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [needsApiKey, setNeedsApiKey] = useState(false);
+  const [demoTotalFlows, setDemoTotalFlows] = useState(0);
+  const [demoCovertFlows, setDemoCovertFlows] = useState(0);
+  const [demoTotalAlerts, setDemoTotalAlerts] = useState(0);
   const [flows, setFlows] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [stats, setStats] = useState(null);
@@ -55,6 +66,12 @@ export function useLiveData() {
     } catch {
       /* demo mode / offline */
     }
+  }, []);
+
+  const acknowledgeAlert = useCallback((alertId) => {
+    setAlerts((prev) => prev.map((alert) => (
+      alert.id === alertId ? { ...alert, acknowledged: true } : alert
+    )));
   }, []);
 
   useEffect(() => {
@@ -134,18 +151,26 @@ export function useLiveData() {
       setNeedsApiKey(false);
       setDemoMode(true);
       setConnected(false);
-      const { flows: hf, alerts: ha } = makeInitialHistory(60);
+      const { flows: hf, alerts: ha } = makeInitialHistory(DEMO_INITIAL_FLOW_COUNT);
       setFlows(hf);
+      setDemoTotalFlows(hf.length);
+      setDemoCovertFlows(hf.filter((flow) => flow.is_covert).length);
       setAlerts(ha);
+      setDemoTotalAlerts(ha.length);
+      let generatedFlows = hf.length;
       demoTimer.current = setInterval(() => {
-        const isCovert = Math.random() < 0.14;
+        generatedFlows += 1;
+        const isCovert = generatedFlows % DEMO_ALERT_INTERVAL_FLOWS === 0;
         const flow = isCovert ? genCovertFlow() : genBenignFlow();
         setFlows((prev) => [...prev.slice(-MAX_FLOWS + 1), flow]);
+        setDemoTotalFlows((total) => total + 1);
+        if (isCovert) setDemoCovertFlows((total) => total + 1);
         if (isCovert) {
           const alert = genAlert(flow);
           setAlerts((prev) => [...prev.slice(-MAX_ALERTS + 1), alert]);
+          setDemoTotalAlerts((total) => total + 1);
         }
-      }, 900);
+      }, DEMO_FLOW_INTERVAL_MS);
     }
 
     tryBackend();
@@ -171,16 +196,18 @@ export function useLiveData() {
   }));
 
   // derive live stats in demo mode from local flow/alert history
-  const derivedStats = demoMode ? deriveStats(flows, alerts) : stats;
+  const derivedStats = demoMode
+    ? deriveStats(flows, alerts, demoTotalFlows, demoCovertFlows, demoTotalAlerts)
+    : stats;
 
   return {
     connected, demoMode, needsApiKey, retry, useDemoInstead,
     flows: annotatedFlows, alerts: annotatedAlerts, stats: derivedStats,
-    blockedIps, blockIp, unblockIp,
+    blockedIps, blockIp, unblockIp, acknowledgeAlert,
   };
 }
 
-function deriveStats(flows, alerts) {
+function deriveStats(flows, alerts, totalFlowCount, covertFlowCount, totalAlertCount) {
   const protocol_distribution = {};
   let entropySum = 0;
   for (const f of flows) {
@@ -193,16 +220,29 @@ function deriveStats(flows, alerts) {
     confidence_distribution[a.confidence] = (confidence_distribution[a.confidence] || 0) + 1;
     covert_type_distribution[a.covert_type] = (covert_type_distribution[a.covert_type] || 0) + 1;
   }
+  const recentFlows = flows.slice(-10);
+  const firstTimestamp = recentFlows.length > 1 ? toTimestamp(recentFlows[0].ts) : NaN;
+  const lastTimestamp = recentFlows.length > 1 ? toTimestamp(recentFlows[recentFlows.length - 1].ts) : NaN;
+  const elapsedSeconds = Number.isFinite(firstTimestamp) && Number.isFinite(lastTimestamp)
+    ? (lastTimestamp - firstTimestamp) / 1000
+    : 0;
+  const flowPackets = recentFlows.reduce((sum, flow) => sum + (flow.packets || 0), 0);
+  const flowBytes = recentFlows.reduce((sum, flow) => sum + (flow.bytes || 0), 0);
   return {
-    total_flows: flows.length,
-    total_alerts: alerts.length,
-    covert_flows: flows.filter((f) => f.is_covert).length,
+    total_flows: totalFlowCount,
+    total_alerts: totalAlertCount,
+    covert_flows: covertFlowCount,
     active_capture: true,
     protocol_distribution,
     confidence_distribution,
     covert_type_distribution,
     avg_entropy: flows.length ? entropySum / flows.length : 0,
-    packets_per_sec: flows.slice(-10).reduce((s, f) => s + f.packets, 0) / 10,
-    bytes_per_sec: flows.slice(-10).reduce((s, f) => s + f.bytes, 0) / 10,
+    packets_per_sec: elapsedSeconds > 0 ? flowPackets / elapsedSeconds : 0,
+    bytes_per_sec: elapsedSeconds > 0 ? flowBytes / elapsedSeconds : 0,
   };
+}
+
+function toTimestamp(value) {
+  const timestamp = typeof value === "number" ? value : Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : NaN;
 }
